@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
+
+project(cloud_viewer)
+
+find_package(OpenCV REQUIRED)
+include_directories(${OpenCV_INCLUDE_DIRS})
+link_directories(${OpenCV_LIBRARY_DIRS})
+add_definitions(${OpenCV_DEFINITIONS})
+
+
+find_package(PCL 1.2 REQUIRED)
+
+include_directories(${PCL_INCLUDE_DIRS})
+link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(${PCL_DEFINITIONS})
+
+
+
+
+
+add_executable (Edge_detection Edge_detection.cpp)
+target_link_libraries (Edge_detection ${PCL_LIBRARIES} ${OpenCV_LIBS})

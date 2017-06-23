@@ -1,0 +1,185 @@
+#include <iostream>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/features/vfh.h>
+#include <pcl/filters/voxel_grid.h> 
+#include <pcl/features/normal_3d.h>
+#include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/visualization/histogram_visualizer.h>
+#include <string.h>
+#include <pcl/common/transforms.h> 
+#include <pcl/visualization/cloud_viewer.h>
+#include <pcl/features/cvfh.h>
+
+boost::shared_ptr<pcl::visualization::PCLHistogramVisualizer>
+            HistoVis (pcl::PointCloud<pcl::VFHSignature308>::ConstPtr cloud1, int length) 
+{ 
+    boost::shared_ptr<pcl::visualization::PCLHistogramVisualizer> histogram (new pcl::visualization::PCLHistogramVisualizer); 
+    histogram->addFeatureHistogram(*cloud1, length, "cloud", 800, 600); 
+    histogram->setBackgroundColor(255,255,255); 
+    
+    return (histogram); 
+} 
+
+
+
+
+int
+main(int argc, char** argv)
+{
+	// Objects for storing the point clouds.
+	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal> ());
+
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
+
+	// Create an empty kdtree object
+	pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
+ 
+	// Read PCD files from disk.
+	if (pcl::io::loadPCDFile<pcl::PointXYZ>(argv[1], *cloud) != 0)
+	{
+		return -1;
+	}
+
+	// Create the filtering object
+	pcl::VoxelGrid<pcl::PointXYZ> sor;
+	sor.setInputCloud (cloud);
+	sor.setLeafSize (0.01f, 0.01f, 0.01f);
+	sor.filter (*cloud_filtered);
+
+	std::cerr << "PointCloud size= " << cloud->size()  << std::endl;
+	std::cerr << "Filtered PointCloud size= " << cloud_filtered->size()  << std::endl;
+
+
+	// Create the normal estimation class, and pass the input dataset to it
+	pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
+	ne.setInputCloud (cloud_filtered);
+	ne.setSearchMethod (tree);
+
+	// Use all neighbors in a sphere of radius 3cm
+	ne.setRadiusSearch (0.03);
+
+	// Compute the features
+	ne.compute (*normals);
+
+	std::cerr << "Normal size= " << normals->size()  << std::endl;
+
+
+	  // Create the VFH estimation class, and pass the input dataset+normals to it
+	pcl::VFHEstimation<pcl::PointXYZ, pcl::Normal, pcl::VFHSignature308> vfh;
+	vfh.setInputCloud (cloud_filtered);
+	vfh.setInputNormals (normals);
+
+	vfh.setSearchMethod (tree);
+
+	// Output datasets
+	pcl::PointCloud<pcl::VFHSignature308>::Ptr vfhs (new pcl::PointCloud<pcl::VFHSignature308> ());
+
+	// Compute the features
+	vfh.compute (*vfhs);
+
+	std::cerr << "Descriptor size= " << vfhs->at (0)  << std::endl;
+
+/*
+	boost::shared_ptr<pcl::visualization::PCLHistogramVisualizer> viewer; 
+	viewer = HistoVis(vfhs,308); 
+
+	char inp[] = "a";
+	while (strcmp (inp,"x") != 0)
+	{
+		viewer->spinOnce (1); 
+		boost::this_thread::sleep (boost::posix_time::microseconds
+		(1000000));   
+		std::cin >> inp;
+*/
+
+        ///////////
+
+	// METHOD #1: Using a Matrix4f
+
+	Eigen::Matrix4f transform = Eigen::Matrix4f::Identity();
+
+	// Define a rotation matrix (see https://en.wikipedia.org/wiki/Rotation_matrix)
+	float theta = M_PI; // The angle of rotation in radians
+	transform (0,0) = cos (theta);
+	transform (0,1) = -sin(theta);
+	transform (1,0) = sin (theta);
+	transform (1,1) = cos (theta);
+	//    (row, column)
+
+	// Define a translation of 2.5 meters on the x axis.
+	transform (0,3) = 15.5;
+
+	// Print the transformation
+	printf ("Method #1: using a Matrix4f\n");
+	std::cout << transform << std::endl;
+
+	// Executing the transformation
+	pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud (new pcl::PointCloud<pcl::PointXYZ> ());
+	// You can either apply transform_1 or transform_2; they are the same
+	pcl::transformPointCloud (*cloud_filtered, *transformed_cloud, transform);
+
+
+	// Compute Normals
+	pcl::PointCloud<pcl::Normal>::Ptr transformed_normals (new pcl::PointCloud<pcl::Normal> ());
+	ne.setInputCloud (transformed_cloud);
+	ne.compute (*transformed_normals);
+
+
+	// Compute VFH 
+	vfh.setInputCloud (transformed_cloud);
+	vfh.setInputNormals (transformed_normals);
+	pcl::PointCloud<pcl::VFHSignature308>::Ptr transformed_vfhs (new pcl::PointCloud<pcl::VFHSignature308> ());
+
+	vfh.compute (*transformed_vfhs);
+
+	std::cerr << "Descriptor size= " << transformed_vfhs->at (0)  << std::endl;
+
+
+/*
+	// CVFH estimation object.
+	pcl::CVFHEstimation<pcl::PointXYZ, pcl::Normal, pcl::VFHSignature308> cvfh;
+	cvfh.setInputCloud(cloud_filtered);
+	cvfh.setInputNormals(normals);
+	cvfh.setSearchMethod(tree);
+
+	// Set the maximum allowable deviation of the normals,
+	// for the region segmentation step.
+	cvfh.setEPSAngleThreshold(5.0 / 180.0 * M_PI); // 5 degrees.
+	// Set the curvature threshold (maximum disparity between curvatures),
+	// for the region segmentation step.
+	cvfh.setCurvatureThreshold(1.0);
+	// Set to true to normalize the bins of the resulting histogram,
+	// using the total number of points. Note: enabling it will make CVFH
+	// invariant to scale just like VFH, but the authors encourage the opposite.
+	cvfh.setNormalizeBins(false);
+
+	pcl::PointCloud<pcl::VFHSignature308>::Ptr cvfhs (new pcl::PointCloud<pcl::VFHSignature308>);
+
+	cvfh.compute(*cvfhs);
+
+	std::cerr << "cvfh Descriptor size= " << cvfhs->size()  << std::endl;
+
+	for (size_t i=0;i<cvfhs->size();++i)
+	{
+		std::cerr << "cvfh Descriptor " << i  <<  " size= "  << cvfhs->at(i)  << std::endl;
+	}
+*/
+
+	boost::shared_ptr<pcl::visualization::PCLHistogramVisualizer> viewer; 
+	viewer = HistoVis(vfhs,308); 
+
+	boost::shared_ptr<pcl::visualization::PCLHistogramVisualizer> viewer2; 
+	viewer2 = HistoVis(transformed_vfhs,308); 
+
+	pcl::visualization::CloudViewer viewer3 ("Simple Cloud Viewer");
+	viewer3.showCloud (cloud_filtered);
+
+	while (!viewer3.wasStopped ())
+	{ 
+	}
+
+
+  return(0);
+}

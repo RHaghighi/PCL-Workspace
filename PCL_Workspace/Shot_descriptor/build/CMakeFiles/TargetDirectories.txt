@@ -1,0 +1,1 @@
+/home/reza/PCL_Workspace/Shot_descriptor/build/CMakeFiles/shot.dir
